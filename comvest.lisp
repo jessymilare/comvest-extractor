@@ -211,7 +211,7 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
          (format stream "~A" questao)
          (print-tabs (* (length (aref *respostas-questoes* n-questao))
                         (length *grupos-comvest*))))
-    (terpri)
+    (terpri stream)
     ;; Linha 2
     (print-tabs 1)
     (print-tabs (length *grupos-comvest*))
@@ -220,18 +220,18 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
          (dolist (resposta (aref *respostas-questoes* n-questao))
            (format stream "~A" resposta)
            (print-tabs (length *grupos-comvest*))))
-    (terpri)
+    (terpri stream)
     ;; Linha 3
     (print-tabs 1)
     (flet ((print-grupos ()
              (loop for (abrev . grupo) in *grupos-comvest* do
-                  (format t "~A" (subseq grupo 0 2))
+                  (format stream "~A" (subseq grupo 0 2))
                   (print-tabs 1))))
       (print-grupos)
       (dotimes (n-questao (min 4 (length *questoes-comvest*)))
            (dotimes (i (length (aref *respostas-questoes* n-questao)))
              (print-grupos))))
-    (terpri)
+    (terpri stream)
     ;; Linhas de dados
     (loop for (abrev . curso) in (if (eq linhas :cursos)
                                      *cursos-comvest*
@@ -253,10 +253,10 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
                   (dotimes (n-grupo (length *grupos-comvest*))
                     (dado (aref *dados-coletados* (+ n-curso n-cidade)
                                 n-questao n-grupo n-resposta)))))
-              (terpri)))
-    (terpri)
+              (terpri stream)))
+    (terpri stream)
     (loop for (abrev . grupo) in *grupos-comvest* do
-         (format t "~A = ~A dos ~A~%" (subseq grupo 0 2)
+         (format stream "~A = ~A dos ~A~%" (subseq grupo 0 2)
                  (ecase tipo
                    (:porcentagem "Porcentagem")
                    (:numero "Número total"))
