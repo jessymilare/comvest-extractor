@@ -16,4 +16,4 @@
   :licence "MIT style"
   :description "Extrai dados socioeconomicos do site da Comvest (Unicamp)"
   :components ((:file "comvest"))
-  :depends-on (:alexandria :cl-ppcre :drakma))
+  :depends-on (:alexandria :cl-ppcre :drakma :bordeaux-threads))

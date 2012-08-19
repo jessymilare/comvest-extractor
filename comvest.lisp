@@ -4,7 +4,7 @@
 ;;; See the file license for license information.
 
 (defpackage :comvest-extractor
-  (:use :cl :cl-ppcre :drakma :alexandria)
+  (:use :cl :cl-ppcre :drakma :alexandria :bordeaux-threads)
   (:nicknames :com)
   (:export #:dados-comvest))
 
@@ -95,6 +95,8 @@
 (defvar *totais-por-grupo*)
 (defconstant +maximo-questoes+ 20)
 
+(defvar *dados-single-lock* (bt:make-lock "dados-single-lock"))
+
 (defun dados-comvest-single (ano curso cidade n-linha questao n-questao grupo n-grupo)
   (let* ((texto
           (scan-to-strings
@@ -124,50 +126,52 @@
        ;; collect (list resposta numero porcentagem)
        do (assert (char= #\% (last-elt porcentagem)))
          (if (string= resposta "total")
-             (if-let ((total (aref *totais-por-grupo* n-linha n-grupo)))
-               (or (and (= (car total) numero)
-                        (string= (cdr total) porcentagem))
-                   (warn "Total de candidatos não coincide.~%~
+             (bt:with-lock-held (*dados-single-lock*)
+               (if-let ((total (aref *totais-por-grupo* n-linha n-grupo)))
+                 (or (and (= (car total) numero)
+                          (string= (cdr total) porcentagem))
+                     (warn "Total de candidatos não coincide.~%~
 Antes: ~A Depois: ~A~%~
 Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
-                         total (cons numero porcentagem)
-                         curso grupo cidade ano))
-               (setf (aref *totais-por-grupo* n-linha n-grupo)
-                     (cons numero porcentagem)))
+                           total (cons numero porcentagem)
+                           curso grupo cidade ano))
+                 (setf (aref *totais-por-grupo* n-linha n-grupo)
+                       (cons numero porcentagem))))
              (progn
-               (if-let ((respostas (aref *respostas-questoes* n-questao)))
-                 (if-let ((posicao (position resposta respostas :test 'equal)))
-                   (assert (= posicao n-resposta))
+               (bt:with-lock-held (*dados-single-lock*)
+                 (if-let ((respostas (aref *respostas-questoes* n-questao)))
+                   (if-let ((posicao (position resposta respostas :test 'equal)))
+                     (assert (= posicao n-resposta))
+                     (progn
+                       (assert (= (length respostas) n-resposta))
+                       (setf (cdr (last respostas)) (list resposta))))
                    (progn
-                     (assert (= (length respostas) n-resposta))
-                     (setf (cdr (last respostas)) (list resposta))))
-                 (progn
-                   (assert (= 0 n-resposta))
-                   (setf (aref *respostas-questoes* n-questao)
-                         (list resposta))))
+                     (assert (= 0 n-resposta))
+                     (setf (aref *respostas-questoes* n-questao)
+                           (list resposta)))))
                (setf (aref *dados-coletados* n-linha n-questao n-grupo n-resposta)
                      (cons numero porcentagem)))))))
 
+(defvar *dados-lock* (bt:make-lock "dados-lock"))
+
 (defun dados-comvest (ano &key (linhas :cursos) (tabulacao t)
                       (tipo :porcentagem) (stream *standard-output*))
-  (let (*cursos-comvest*
-        *cidades-comvest*
-        *questoes-comvest*
-        *grupos-comvest*)
+  (with-lock-held (*dados-lock*)
     (extrair-opcoes-comvest ano)
     (let* ((n-linhas (ecase linhas
                        (:cursos (length *cursos-comvest*))
                        (:cidades (length *cidades-comvest*))))
-           (*dados-coletados*
+           (threads-to-join nil))
+      (setf *dados-coletados*
             (make-array (list n-linhas
                               (length *questoes-comvest*)
                               (length *grupos-comvest*)
                               +maximo-questoes+)
-                        :initial-element (cons "" "")))
-           (*respostas-questoes* (make-array (length *questoes-comvest*)
-                                             :initial-element nil))
-           (*totais-por-grupo* (make-array (list n-linhas (length *grupos-comvest*))
-                                           :initial-element nil)))
+                        :initial-element (cons "" ""))
+            *respostas-questoes* (make-array (length *questoes-comvest*)
+                                             :initial-element nil)
+            *totais-por-grupo* (make-array (list n-linhas (length *grupos-comvest*))
+                                           :initial-element nil))
       (loop for (curso) in (if (eq linhas :cursos)
                                *cursos-comvest*
                                (list (first *cursos-comvest*)))
@@ -180,11 +184,16 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
                    for n-questao from 0 to 3 do
                      (loop for (grupo) in *grupos-comvest*
                         for n-grupo from 0 do
-                          (dados-comvest-single ano curso cidade
-                                                (+ n-curso n-cidade)
-                                                questao n-questao grupo n-grupo)))))
-      (imprimir-tabela ano :linhas linhas :tipo tipo :tabulacao tabulacao
-                       :stream stream))))
+                          (push (make-thread
+                                 (lambda ()
+                                   (dados-comvest-single ano curso cidade
+                                                         (+ n-curso n-cidade)
+                                                         questao n-questao grupo n-grupo)))
+                                threads-to-join)))))
+      (mapc #'join-thread threads-to-join))
+    (when stream
+      (imprimir-tabela ano :linhas linhas :tipo tipo
+                       :tabulacao tabulacao :stream stream))))
 
 (defun imprimir-tabela (ano &key (linhas :cursos) (tabulacao t)
                         (tipo :porcentagem) (stream *standard-output*))
