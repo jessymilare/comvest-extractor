@@ -4,9 +4,9 @@
 ;;; See the file license for license information.
 
 (defpackage :comvest-extractor
-  (:use :cl :cl-ppcre :drakma :alexandria)
+  (:use :cl :cl-ppcre :drakma :alexandria :bordeaux-threads)
   (:nicknames :com)
-  (:export #:dados-comvest))
+  (:export #:dados-comvest #:dados-comvest-arquivos))
 
 (in-package :comvest-extractor)
 
@@ -148,8 +148,8 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
                (setf (aref *dados-coletados* n-linha n-questao n-grupo n-resposta)
                      (cons numero porcentagem)))))))
 
-(defun dados-comvest (ano &key (linhas :cursos) (tabulacao t)
-                      (tipo :porcentagem) (stream *standard-output*))
+(defun dados-comvest (ano &key (linhas :cursos) (tipo :porcentagem)
+                      (stream *standard-output*))
   (let (*cursos-comvest*
         *cidades-comvest*
         *questoes-comvest*
@@ -175,19 +175,19 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
            (loop for (cidade) in (if (eq linhas :cidades)
                                      *cidades-comvest*
                                      (list (first *cidades-comvest*)))
-              for n-cidade from 0 do
+              for n-cidade from 0 to 3 do
                 (loop for (questao) in *questoes-comvest*
-                   for n-questao from 0 to 3 do
+                   for n-questao from 0 to 1 do
                      (loop for (grupo) in *grupos-comvest*
                         for n-grupo from 0 do
                           (dados-comvest-single ano curso cidade
                                                 (+ n-curso n-cidade)
                                                 questao n-questao grupo n-grupo)))))
-      (imprimir-tabela ano :linhas linhas :tipo tipo :tabulacao tabulacao
-                       :stream stream))))
+      (imprimir-tabela ano :linhas linhas :tipo tipo :stream stream))))
 
-(defun imprimir-tabela (ano &key (linhas :cursos) (tabulacao t)
-                        (tipo :porcentagem) (stream *standard-output*))
+(defun imprimir-tabela (ano &key (linhas :cursos)
+                        (tipo :porcentagem) (stream *standard-output*)
+                        &aux (tabulacao t))
   (flet ((print-tabs (n)
            (dotimes (i (if tabulacao n 1))
              (format stream "~C" #\Tab)))
@@ -200,38 +200,41 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
                          (:numero (car celula))))
                    #\Tab)))
     ;; Cabeçalho
-    (format t "Dados Socioeconômicos Comvest Unicamp ~A~%~%" ano)
-    ;; Linha 1
-    (ecase linhas
-      (:cursos  (format stream "Curso~CTotais" #\Tab))
-      (:cidades (format stream "Cidade~CTotais" #\Tab)))
-    (print-tabs (length *grupos-comvest*))
-    (loop for (abrev . questao) in *questoes-comvest*
-       for n-questao from 0 to 3 do
-         (format stream "~A" questao)
-         (print-tabs (* (length (aref *respostas-questoes* n-questao))
-                        (length *grupos-comvest*))))
-    (terpri stream)
-    ;; Linha 2
-    (print-tabs 1)
-    (print-tabs (length *grupos-comvest*))
-    (loop for (abrev . questao) in *questoes-comvest*
-       for n-questao from 0 to 3 do
-         (dolist (resposta (aref *respostas-questoes* n-questao))
-           (format stream "~A" resposta)
-           (print-tabs (length *grupos-comvest*))))
-    (terpri stream)
-    ;; Linha 3
-    (print-tabs 1)
-    (flet ((print-grupos ()
-             (loop for (abrev . grupo) in *grupos-comvest* do
-                  (format stream "~A" (subseq grupo 0 2))
-                  (print-tabs 1))))
-      (print-grupos)
-      (dotimes (n-questao (min 4 (length *questoes-comvest*)))
-           (dotimes (i (length (aref *respostas-questoes* n-questao)))
-             (print-grupos))))
-    (terpri stream)
+    (format stream "Dados Socioeconômicos Comvest Unicamp ~A" ano)
+    (dotimes (i 2)
+      (terpri stream) (terpri stream)
+      ;; Linha 1
+      (ecase linhas
+        (:cursos  (format stream "Curso~CTotais" #\Tab))
+        (:cidades (format stream "Cidade~CTotais" #\Tab)))
+      (print-tabs (length *grupos-comvest*))
+      (loop for (abrev . questao) in *questoes-comvest*
+         for n-questao from 0 to 3 do
+           (format stream "~A" questao)
+           (print-tabs (* (length (aref *respostas-questoes* n-questao))
+                          (length *grupos-comvest*))))
+      (terpri stream)
+      ;; Linha 2
+      (print-tabs 1)
+      (print-tabs (length *grupos-comvest*))
+      (loop for (abrev . questao) in *questoes-comvest*
+         for n-questao from 0 to 3 do
+           (dolist (resposta (aref *respostas-questoes* n-questao))
+             (format stream "~A" resposta)
+             (print-tabs (length *grupos-comvest*))))
+      (terpri stream)
+      ;; Linha 3
+      (print-tabs 1)
+      (flet ((print-grupos ()
+               (loop for (abrev . grupo) in *grupos-comvest* do
+                    (format stream "~A" (subseq grupo 0 2))
+                    (print-tabs 1))))
+        (print-grupos)
+        (dotimes (n-questao (min 4 (length *questoes-comvest*)))
+          (dotimes (i (length (aref *respostas-questoes* n-questao)))
+            (print-grupos))))
+      (terpri stream)
+      (setf tabulacao nil))
     ;; Linhas de dados
     (loop for (abrev . curso) in (if (eq linhas :cursos)
                                      *cursos-comvest*
@@ -240,7 +243,7 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
          (loop for (abrev . cidade) in (if (eq linhas :cidades)
                                            *cidades-comvest*
                                            (list (first *cidades-comvest*)))
-            for n-cidade from 0 do
+            for n-cidade from 0 to 3 do
               (ecase linhas
                 (:cursos  (format stream "~A" curso))
                 (:cidades (format stream "~A" cidade)))
@@ -248,7 +251,7 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
               (dotimes (n-grupo (length *grupos-comvest*))
                 (dado (aref *totais-por-grupo* (+ n-curso n-cidade) n-grupo)
                       t))
-              (dotimes (n-questao (min 4 (length *questoes-comvest*)))
+              (dotimes (n-questao (min 2 (length *questoes-comvest*)))
                 (dotimes (n-resposta (length (aref *respostas-questoes* n-questao)))
                   (dotimes (n-grupo (length *grupos-comvest*))
                     (dado (aref *dados-coletados* (+ n-curso n-cidade)
@@ -261,3 +264,16 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
                    (:porcentagem "Porcentagem")
                    (:numero "Número total"))
                  grupo))))
+
+(defun dados-comvest-arquivos (diretorio anos &key (linhas :cursos) (tipo :porcentagem))
+  (dolist (ano (ensure-list anos))
+    (bt:make-thread
+     (lambda ()
+       (with-open-file (file (make-pathname :name
+                                            (string-downcase
+                                             (format nil "comvest ~a ~a ~a"
+                                                     ano linhas tipo))
+                                            :defaults diretorio)
+                             :direction :output :if-exists :supersede)
+         (dados-comvest ano :linhas linhas :tipo tipo :stream file)))
+     "Comvest extractor thread")))
