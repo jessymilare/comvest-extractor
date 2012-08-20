@@ -95,20 +95,29 @@
 (defvar *respostas-questoes*)
 (defvar *totais-por-grupo*)
 (defconstant +maximo-questoes+ 20)
+(defconstant +maximum-retries+ 10)
 
 (defun dados-comvest-single (ano curso cidade n-linha questao n-questao grupo n-grupo)
   (let* ((texto
           (scan-to-strings
            *regex-comvest*
-           (http-request
-            (format nil "http://www.comvest.unicamp.br/estatisticas/~d/quest/quest2.php"
-                    ano)
-            :method :post
-            :form-data t
-            :parameters `(("opcao" . ,curso)
-                          ("cid_inscricao" . ,cidade)
-                          ("questao" . ,questao)
-                          ("grupo" . ,grupo)))))
+           (loop for try from 0
+              for response =
+                (handler-case
+                  (http-request
+                   (format nil
+                           "http://www.comvest.unicamp.br/estatisticas/~d/quest/quest2.php"
+                           ano)
+                   :method :post
+                   :form-data t
+                   :parameters `(("opcao" . ,curso)
+                                 ("cid_inscricao" . ,cidade)
+                                 ("questao" . ,questao)
+                                 ("grupo" . ,grupo)))
+                  (error (c)
+                    (if (>= try +maximum-retries+)
+                        (error c))))
+              until response finally (return response))))
          (dados
           (loop for (start end register-start register-end)
                = (multiple-value-list (scan *regex-comvest-single*
