@@ -43,32 +43,36 @@
                      (1- (length string))))))
     (nsubstitute #\- #\ (subseq string start end))))
 
+(defvar *ano-dados-comvest*)
 (defvar *cursos-comvest*)
 (defvar *cidades-comvest*)
 (defvar *questoes-comvest*)
 (defvar *grupos-comvest*)
 
 (defun extrair-opcoes-comvest (ano)
-  (let ((opcoes '("opcao" "cid_inscricao" "questao" "grupo"))
-        (variaveis '(*cursos-comvest* *cidades-comvest* *questoes-comvest*
-                     *grupos-comvest*))
-        (texto
-         (http-request
-          (format nil "http://www.comvest.unicamp.br/estatisticas/~d/quest/quest1.php"
-                  ano))))
-    (loop for opcao in opcoes
-       for variavel in variaveis
-       for subtexto = (scan-to-strings (regex-opcoes-comvest opcao) texto)
-       do (setf (symbol-value variavel)
-                (loop for (start end register-start register-end)
-                     = (multiple-value-list (scan *regex-opcoes-comvest-single*
-                                                  subtexto :start (or end 0)))
-                   while start collect
-                     (cons (subseq subtexto (aref register-start 0)
-                                   (aref register-end 0))
-                           (normalize-text
-                            (subseq subtexto (aref register-start 1)
-                                    (aref register-end 1)))))))))
+  (unless (and (boundp '*ano-dados-comvest*)
+               (= ano *ano-dados-comvest*))
+    (setf *ano-dados-comvest* ano)
+    (let ((opcoes '("opcao" "cid_inscricao" "questao" "grupo"))
+          (variaveis '(*cursos-comvest* *cidades-comvest* *questoes-comvest*
+                       *grupos-comvest*))
+          (texto
+           (http-request
+            (format nil "http://www.comvest.unicamp.br/estatisticas/~d/quest/quest1.php"
+                    ano))))
+      (loop for opcao in opcoes
+         for variavel in variaveis
+         for subtexto = (scan-to-strings (regex-opcoes-comvest opcao) texto)
+         do (setf (symbol-value variavel)
+                  (loop for (start end register-start register-end)
+                       = (multiple-value-list (scan *regex-opcoes-comvest-single*
+                                                    subtexto :start (or end 0)))
+                     while start collect
+                       (cons (subseq subtexto (aref register-start 0)
+                                     (aref register-end 0))
+                             (normalize-text
+                              (subseq subtexto (aref register-start 1)
+                                      (aref register-end 1))))))))))
 
 (defparameter *regex-comvest-single*
   `(:sequence
@@ -104,16 +108,18 @@
            (loop for try from 0
               for response =
                 (handler-case
-                  (http-request
-                   (format nil
-                           "http://www.comvest.unicamp.br/estatisticas/~d/quest/quest2.php"
-                           ano)
-                   :method :post
-                   :form-data t
-                   :parameters `(("opcao" . ,curso)
-                                 ("cid_inscricao" . ,cidade)
-                                 ("questao" . ,questao)
-                                 ("grupo" . ,grupo)))
+                    (bt:with-timeout (5)
+                      (http-request
+                       (format
+                        nil
+                        "http://www.comvest.unicamp.br/estatisticas/~d/quest/quest2.php"
+                        ano)
+                       :method :post
+                       :form-data t
+                       :parameters `(("opcao" . ,curso)
+                                     ("cid_inscricao" . ,cidade)
+                                     ("questao" . ,questao)
+                                     ("grupo" . ,grupo))))
                   (error (c)
                     (if (>= try +maximum-retries+)
                         (error c))))
@@ -169,49 +175,53 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
       list))
 
 (defun dados-comvest (ano &key (linhas :cursos) (tipo :porcentagem)
-                      (stream *standard-output*) (report t))
-  (let (*cursos-comvest*
-        *cidades-comvest*
-        *questoes-comvest*
-        *grupos-comvest*)
-    (extrair-opcoes-comvest ano)
-    (let* ((n-linhas (ecase linhas
-                       (:cursos (length *cursos-comvest*))
-                       (:cidades (length *cidades-comvest*))))
-           (*dados-coletados*
-            (make-array (list n-linhas
-                              (length *questoes-comvest*)
-                              (length *grupos-comvest*)
-                              +maximo-questoes+)
-                        :initial-element (cons "" "")))
-           (*respostas-questoes* (make-array (length *questoes-comvest*)
-                                             :initial-element nil))
-           (*totais-por-grupo* (make-array (list n-linhas (length *grupos-comvest*))
-                                           :initial-element nil)))
-      (when report
-        (format *trace-output* "Iniciando extração de dados Comvest (~A) ~%" ano))
-      (loop with cursos = (if (eq linhas :cursos)
-                              (maybe-clamp-list *cursos-comvest*)
-                              (list (first *cursos-comvest*)))
-         for (curso) in cursos
-         for n-curso from 0 do
-           (loop with cidades = (if (eq linhas :cidades)
-                                    (maybe-clamp-list *cidades-comvest*)
-                                    (list (first *cidades-comvest*)))
-              for (cidade) in cidades
-              for n-cidade from 0 do
-                (when report
-                  (format *trace-output* "~A de ~A concluídos ~%"
-                          (+ n-curso n-cidade) (+ (length cursos) (length cidades) -1)))
-                (loop for (questao) in (maybe-clamp-list *questoes-comvest*)
-                   for n-questao from 0 do
+                      (stream *standard-output*) (report t) questoes)
+  (extrair-opcoes-comvest ano)
+  (let* ((*respostas-questoes* (make-array (length *questoes-comvest*)
+                                           :initial-element nil))
+         (*cursos-comvest* (if (eq linhas :cursos)
+                               (maybe-clamp-list *cursos-comvest*)
+                               (list (first *cursos-comvest*))))
+         (*cidades-comvest* (if (eq linhas :cidades)
+                                (maybe-clamp-list *cidades-comvest*)
+                                (list (first *cidades-comvest*))))
+         (*questoes-comvest* (if questoes
+                                 (mapcar (lambda (questao)
+                                           (assoc questao *questoes-comvest*
+                                                  :test #'string=))
+                                         questoes)
+                                 (maybe-clamp-list *questoes-comvest*)))
+         (*grupos-comvest* *grupos-comvest*)
+         (n-linhas (ecase linhas
+                     (:cursos (length *cursos-comvest*))
+                     (:cidades (length *cidades-comvest*))))
+         (*totais-por-grupo* (make-array (list n-linhas (length *grupos-comvest*))
+                                         :initial-element nil))
+         (*dados-coletados*
+          (make-array (list n-linhas
+                            (length *questoes-comvest*)
+                            (length *grupos-comvest*)
+                            +maximo-questoes+)
+                      :initial-element (cons "" ""))))
+    (when report
+      (format *trace-output* "DADOS-COMVEST: Iniciando extração de dados Comvest (~A) ~%" ano))
+    (loop for (curso) in *cursos-comvest*
+       for n-curso from 0 do
+         (loop for (cidade) in *cidades-comvest*
+            for n-cidade from 0 do
+              (when report
+                (format *trace-output* "DADOS-COMVEST: ~A cursos/cidades de ~A concluídos ~%"
+                        (+ n-curso n-cidade)
+                        (+ (length *cursos-comvest*) (length *cidades-comvest*) -1)))
+              (loop for (questao) in *questoes-comvest*
+                 for n-questao from 0 do
                    (loop for (grupo) in *grupos-comvest*
                       for n-grupo from 0 do
-                      (dados-comvest-single ano curso cidade
-                                            (+ n-curso n-cidade)
-                                            questao n-questao grupo n-grupo)))))
-      (format *trace-output* "Fim da extração.~%")
-      (imprimir-tabela ano :linhas linhas :tipo tipo :stream stream))))
+                        (dados-comvest-single ano curso cidade
+                                              (+ n-curso n-cidade)
+                                              questao n-questao grupo n-grupo)))))
+    (format *trace-output* "DADOS-COMVEST: Fim da extração.~%")
+    (imprimir-tabela ano :linhas linhas :tipo tipo :stream stream)))
 
 (defun imprimir-tabela (ano &key (linhas :cursos)
                         (tipo :porcentagem) (stream *standard-output*)
@@ -293,7 +303,8 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
                    (:numero "Número total"))
                  (string-downcase grupo)))))
 
-(defun dados-comvest-arquivos (diretorio anos &key (linhas :cursos) (tipo :porcentagem))
+(defun dados-comvest-arquivos (diretorio anos &key (linhas :cursos) (tipo :porcentagem)
+                               questoes)
   (dolist (ano (ensure-list anos))
     (with-open-file (file (make-pathname :name
                                          (string-downcase
@@ -301,4 +312,4 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
                                                   ano linhas tipo))
                                          :defaults diretorio)
                           :direction :output :if-exists :supersede)
-      (dados-comvest ano :linhas linhas :tipo tipo :stream file))))
+      (dados-comvest ano :linhas linhas :tipo tipo :stream file :questoes questoes))))
