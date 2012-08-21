@@ -283,7 +283,7 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
                                          (list (first *cidades-comvest*)))
           for n-cidade from 0 do
           (ecase linhas
-            (:cursos  (format stream "~@(~A~)" curso))
+            (:cursos  (format stream "~A" curso))
             (:cidades (format stream "~A" cidade)))
           (print-tabs 1)
           (dotimes (n-grupo (length *grupos-comvest*))
@@ -301,7 +301,9 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
                  (ecase tipo
                    (:porcentagem "Porcentagem")
                    (:numero "Número total"))
-                 (string-downcase grupo)))))
+                 (string-downcase grupo)))
+    (terpri stream)
+    (format stream "Fonte: Comvest (http://www.comvest.unicamp.br/)~%")))
 
 (defun dados-comvest-arquivos (diretorio anos &key (linhas :cursos) (tipo :porcentagem)
                                questoes)
