@@ -101,7 +101,7 @@
 (defconstant +maximo-questoes+ 20)
 (defconstant +maximum-retries+ 10)
 (defconstant +retry-time+ 0.5)
-(defconstant +timeout-time+ 10)
+(defconstant +timeout-time+ 30)
 
 (defun dados-comvest-single (ano curso cidade n-linha questao n-questao grupo n-grupo)
   (let* ((texto
@@ -199,7 +199,7 @@ Curso: ~A Grupo: ~A Cidade: ~A Ano: ~A"
                      (:cursos (length *cursos-comvest*))
                      (:cidades (length *cidades-comvest*))))
          (*totais-por-grupo* (make-array (list n-linhas (length *grupos-comvest*))
-                                         :initial-element ""))
+                                         :initial-element nil))
          (*dados-coletados*
           (make-array (list n-linhas
                             (length *questoes-comvest*)
