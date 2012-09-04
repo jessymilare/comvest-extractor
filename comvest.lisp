@@ -98,10 +98,10 @@
 (defvar *dados-coletados*)
 (defvar *respostas-questoes*)
 (defvar *totais-por-grupo*)
-(defconstant +maximo-questoes+ 20)
-(defconstant +maximum-retries+ 10)
-(defconstant +retry-time+ 0.5)
-(defconstant +timeout-time+ 30)
+(defparameter *maximo-questoes* 20)
+(defparameter *maximum-retries* 10)
+(defparameter *retry-time* 0.5)
+(defparameter *timeout-time* 30)
 
 (defun dados-comvest-single (ano curso cidade n-linha questao n-questao grupo n-grupo)
   (let* ((texto
@@ -110,7 +110,7 @@
            (loop for try from 0
               for response =
                 (handler-case
-                    (bt:with-timeout (+timeout-time+)
+                    (bt:with-timeout (*timeout-time*)
                       (http-request
                        (format
                         nil
@@ -123,9 +123,9 @@
                                      ("questao" . ,questao)
                                      ("grupo" . ,grupo))))
                   (error (c)
-                    (if (>= try +maximum-retries+)
+                    (if (>= try *maximum-retries*)
                         (error c)
-                        (sleep +retry-time+))))
+                        (sleep *retry-time*))))
               until response finally (return response))))
          (dados
           (loop for (start end register-start register-end)
